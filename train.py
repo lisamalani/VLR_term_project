@@ -31,9 +31,11 @@ class CustomCheckpointIO(CheckpointIO):
         torch.save(checkpoint, path)
 
     def load_checkpoint(self, path, storage_options=None):
-        checkpoint = torch.load(path + "artifacts.ckpt")
+        checkpoint = torch.load(path + "artifacts-v1.ckpt")
         state_dict = torch.load(path + "pytorch_model.bin")
-        checkpoint["state_dict"] = {"model." + key: value for key, value in state_dict.items()}
+        checkpoint["state_dict"] = {
+            "model." + key: value for key, value in state_dict.items()
+        }
         return checkpoint
 
     def remove_checkpoint(self, path) -> None:
@@ -60,19 +62,35 @@ def train(config):
     # add datasets to data_module
     datasets = {"train": [], "validation": []}
     for i, dataset_name_or_path in enumerate(config.dataset_name_or_paths):
-        task_name = os.path.basename(dataset_name_or_path)  # e.g., cord-v2, docvqa, rvlcdip, ...
-        
+        task_name = os.path.basename(
+            dataset_name_or_path
+        )  # e.g., cord-v2, docvqa, rvlcdip, ...
+
         # add categorical special tokens (optional)
         if task_name == "rvlcdip":
-            model_module.model.decoder.add_special_tokens([
-                "<advertisement/>", "<budget/>", "<email/>", "<file_folder/>", 
-                "<form/>", "<handwritten/>", "<invoice/>", "<letter/>", 
-                "<memo/>", "<news_article/>", "<presentation/>", "<questionnaire/>", 
-                "<resume/>", "<scientific_publication/>", "<scientific_report/>", "<specification/>"
-            ])
-        if task_name == "docvqa":
+            model_module.model.decoder.add_special_tokens(
+                [
+                    "<advertisement/>",
+                    "<budget/>",
+                    "<email/>",
+                    "<file_folder/>",
+                    "<form/>",
+                    "<handwritten/>",
+                    "<invoice/>",
+                    "<letter/>",
+                    "<memo/>",
+                    "<news_article/>",
+                    "<presentation/>",
+                    "<questionnaire/>",
+                    "<resume/>",
+                    "<scientific_publication/>",
+                    "<scientific_report/>",
+                    "<specification/>",
+                ]
+            )
+        if "vqa" in task_name:
             model_module.model.decoder.add_special_tokens(["<yes/>", "<no/>"])
-            
+
         for split in ["train", "validation"]:
             datasets[split].append(
                 DonutDataset(
@@ -83,7 +101,9 @@ def train(config):
                     task_start_token=config.task_start_tokens[i]
                     if config.get("task_start_tokens", None)
                     else f"<s_{task_name}>",
-                    prompt_end_token="<s_answer>" if "docvqa" in dataset_name_or_path else f"<s_{task_name}>",
+                    prompt_end_token="<s_answer>"
+                    if "vqa" in dataset_name_or_path
+                    else f"<s_{task_name}>",
                     sort_json_key=config.sort_json_key,
                 )
             )
@@ -116,7 +136,7 @@ def train(config):
         resume_from_checkpoint=config.get("resume_from_checkpoint_path", None),
         num_nodes=config.get("num_nodes", 1),
         gpus=torch.cuda.device_count(),
-        strategy="ddp",
+        strategy=None,
         accelerator="gpu",
         plugins=custom_ckpt,
         max_epochs=config.max_epochs,
@@ -143,7 +163,13 @@ if __name__ == "__main__":
     config.argv_update(left_argv)
 
     config.exp_name = basename(args.config).split(".")[0]
-    config.exp_version = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") if not args.exp_version else args.exp_version
+    config.exp_version = (
+        datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if not args.exp_version
+        else args.exp_version
+    )
 
-    save_config_file(config, Path(config.result_path) / config.exp_name / config.exp_version)
+    save_config_file(
+        config, Path(config.result_path) / config.exp_name / config.exp_version
+    )
     train(config)

@@ -1,6 +1,7 @@
-resume_from_checkpoint_path: null 
+resume_from_checkpoint_path: null
 result_path: "./result"
 pretrained_model_name_or_path: "naver-clova-ix/donut-base"
+# pretrained_model_name_or_path: "result/train_vqa_cuad/cuad_donutVQA/artifacts-v2.ckpt"
 # dataset_name_or_paths: ["../CUAD_single_page/vqa_dataset/"] # should be prepared from https://rrc.cvc.uab.es/?ch=17
 dataset_name_or_paths: ["../CUAD_multi_page/vqa_dataset/"] # should be prepared from https://rrc.cvc.uab.es/?ch=17
 sort_json_key: True

@@ -16,29 +16,37 @@ def demo_process_vqa(input_img, question):
     global pretrained_model, task_prompt, task_name
     input_img = Image.fromarray(input_img)
     user_prompt = task_prompt.replace("{user_input}", question)
-    output = pretrained_model.inference(input_img, prompt=user_prompt)["predictions"][0]
+    output = pretrained_model.inference(input_img, prompt=user_prompt)[
+        "predictions"
+    ][0]
     return output
 
 
 def demo_process(input_img):
     global pretrained_model, task_prompt, task_name
     input_img = Image.fromarray(input_img)
-    output = pretrained_model.inference(image=input_img, prompt=task_prompt)["predictions"][0]
+    output = pretrained_model.inference(image=input_img, prompt=task_prompt)[
+        "predictions"
+    ][0]
     return output
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="docvqa")
-    parser.add_argument("--pretrained_path", type=str, default="naver-clova-ix/donut-base-finetuned-docvqa")
+    parser.add_argument("--task", type=str, default="vqa")
+    parser.add_argument(
+        "--pretrained_path",
+        type=str,
+        default="naver-clova-ix/donut-base-finetuned-docvqa",
+    )
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--url", type=str, default=None)
     parser.add_argument("--sample_img_path", type=str)
     args, left_argv = parser.parse_known_args()
 
     task_name = args.task
-    if "docvqa" == task_name:
-        task_prompt = "<s_docvqa><s_question>{user_input}</s_question><s_answer>"
+    if "vqa" in task_name:
+        task_prompt = "<s_vqa><s_question>{user_input}</s_question><s_answer>"
     else:  # rvlcdip, cord, ...
         task_prompt = f"<s_{task_name}>"
 
@@ -56,8 +64,8 @@ if __name__ == "__main__":
     pretrained_model.eval()
 
     demo = gr.Interface(
-        fn=demo_process_vqa if task_name == "docvqa" else demo_process,
-        inputs=["image", "text"] if task_name == "docvqa" else "image",
+        fn=demo_process_vqa if "vqa" in task_name else demo_process,
+        inputs=["image", "text"] if "vqa" in task_name else "image",
         outputs="json",
         title=f"Donut 🍩 demonstration for `{task_name}` task",
         examples=[example_sample] if example_sample else None,

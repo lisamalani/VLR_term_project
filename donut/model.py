@@ -568,7 +568,30 @@ class DonutModel(PreTrainedModel):
 
         prompt_tensors = prompt_tensors.to(self.device)
 
-        last_hidden_state = self.encoder(image_tensors)
+        num_pages = image_tensors.shape[-1]
+        encoder_outputs = []
+        device = image_tensors.device
+
+        image_tensors = image_tensors.to("cpu")
+
+        for i in range(num_pages):
+            single_page_tensor = image_tensors[:, :, :, :, i].to(device)
+            page_tensor = single_page_tensor.squeeze(-1)
+            encoder_output = self.encoder(page_tensor)
+            encoder_outputs.append(encoder_output.unsqueeze(-1).to("cpu"))
+
+        encoder_outputs = torch.cat(encoder_outputs, dim=-1).to(device)
+
+        encoder_outputs_reshaped = encoder_outputs.transpose(1, 2)
+        B, M, N, pages = encoder_outputs_reshaped.shape
+        encoder_outputs_reshaped = encoder_outputs_reshaped.reshape(
+            B, M, N * pages
+        )
+        last_hidden_state = self.linear_layer(
+            encoder_outputs_reshaped
+        ).transpose(1, 2)
+
+        # last_hidden_state = self.encoder(image_tensors)
         if self.device.type != "cuda":
             last_hidden_state = last_hidden_state.to(torch.float32)
 

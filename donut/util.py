@@ -53,6 +53,7 @@ class DonutDataset(Dataset):
         sort_json_key: bool = True,
     ):
         super().__init__()
+        self.num_pages = 4
 
         self.donut_model = donut_model
         self.max_length = max_length
@@ -79,7 +80,10 @@ class DonutDataset(Dataset):
             ground_truth = dict()
             list_ques_answers = sample["question_answer"]
             gt = []
-            [gt.extend(q_a_list) for q_a_list in list_ques_answers]
+            [
+                gt.extend(q_a_list)
+                for q_a_list in list_ques_answers[: self.num_pages]
+            ]
             ground_truth["gt_parses"] = gt
             ###############
 
@@ -144,10 +148,10 @@ class DonutDataset(Dataset):
         doc_name = sample["doc_name"]
         page_path = sample["page_path"]
         # C, H, W, P = 3, 2560, 1920, 5
-        C, H, W, P = 3, 1280, 960, 2  ##########
+        C, H, W, P = 3, 1280, 960, self.num_pages  ##########
         input_tensor = torch.zeros(size=(C, H, W, P))
 
-        for i in range(min(num_pages, 2)):
+        for i in range(min(num_pages, self.num_pages)):
             image_path = os.path.join(page_path, f"{doc_name}_page_{i}.png")
             image_tensor = Image.open(image_path)
             image_tensor = self.donut_model.encoder.prepare_input(
@@ -158,9 +162,13 @@ class DonutDataset(Dataset):
         ###################################
 
         # input_ids
-        processed_parse = random.choice(
-            self.gt_token_sequences[idx]
-        )  # can be more than one, e.g., DocVQA Task 1
+        try:
+            processed_parse = random.choice(
+                self.gt_token_sequences[idx]
+            )  # can be more than one, e.g., DocVQA Task 1
+        except Exception as a:
+            print(self.gt_token_sequences[idx])
+            raise a
         input_ids = self.donut_model.decoder.tokenizer(
             processed_parse,
             add_special_tokens=False,
@@ -219,6 +227,20 @@ class DonutDataset(Dataset):
                     dataset[doc_name]["page_name"] = [page_name]
                     dataset[doc_name]["question_answer"] = [ques_ans]
 
+        empty_docs = []
+        for doc, doc_info in dataset.items():
+            question_answers = doc_info["question_answer"]
+            qa = []
+            [
+                qa.extend(q_a_list)
+                for q_a_list in question_answers[: self.num_pages]
+            ]
+            if len(qa) == 0:
+                empty_docs.append(doc)
+
+        for doc in empty_docs:
+            del dataset[doc]
+        print("Removed docs: ", len(empty_docs))
         return list(dataset.values())
 
 

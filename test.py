@@ -19,7 +19,9 @@ from donut import DonutModel, JSONParseEvaluator, load_json, save_json
 
 
 def test(args):
-    pretrained_model = DonutModel.from_pretrained(args.pretrained_model_name_or_path)
+    pretrained_model = DonutModel.from_pretrained(
+        args.pretrained_model_name_or_path
+    )
 
     if torch.cuda.is_available():
         pretrained_model.half()
@@ -40,18 +42,20 @@ def test(args):
     for idx, sample in tqdm(enumerate(dataset), total=len(dataset)):
         ground_truth = json.loads(sample["ground_truth"])
 
-        if args.task_name == "docvqa":
+        if "vqa" in args.task_name:
             output = pretrained_model.inference(
                 image=sample["image"],
                 prompt=f"<s_{args.task_name}><s_question>{ground_truth['gt_parses'][0]['question'].lower()}</s_question><s_answer>",
             )["predictions"][0]
         else:
-            output = pretrained_model.inference(image=sample["image"], prompt=f"<s_{args.task_name}>")["predictions"][0]
+            output = pretrained_model.inference(
+                image=sample["image"], prompt=f"<s_{args.task_name}>"
+            )["predictions"][0]
 
         if args.task_name == "rvlcdip":
             gt = ground_truth["gt_parse"]
             score = float(output["class"] == gt["class"])
-        elif args.task_name == "docvqa":
+        elif "vqa" in args.task_name:
             # Note: we evaluated the model on the official website.
             # In this script, an exact-match based score will be returned instead
             gt = ground_truth["gt_parses"]
