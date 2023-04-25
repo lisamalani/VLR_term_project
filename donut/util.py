@@ -16,6 +16,7 @@ from nltk import edit_distance
 from torch.utils.data import Dataset
 from transformers.modeling_utils import PreTrainedModel
 from zss import Node
+from PIL import Image
 
 
 def save_json(write_path: Union[str, bytes, os.PathLike], save_obj: Any):
@@ -58,20 +59,39 @@ class DonutDataset(Dataset):
         self.split = split
         self.ignore_id = ignore_id
         self.task_start_token = task_start_token
-        self.prompt_end_token = prompt_end_token if prompt_end_token else task_start_token
+        self.prompt_end_token = (
+            prompt_end_token if prompt_end_token else task_start_token
+        )
         self.sort_json_key = sort_json_key
 
-        self.dataset = load_dataset(dataset_name_or_path, split=self.split)
+        print(dataset_name_or_path, self.split)
+        # self.dataset = load_dataset(dataset_name_or_path, split=self.split)
+        self.dataset = self.load_dataset_multipage(
+            dataset_name_or_path, split=self.split
+        )
         self.dataset_length = len(self.dataset)
 
         self.gt_token_sequences = []
         for sample in self.dataset:
-            ground_truth = json.loads(sample["ground_truth"])
-            if "gt_parses" in ground_truth:  # when multiple ground truths are available, e.g., docvqa
+            # ground_truth = sample["ground_truth"]
+
+            ### Multipage ground truth
+            ground_truth = dict()
+            list_ques_answers = sample["question_answer"]
+            gt = []
+            [gt.extend(q_a_list) for q_a_list in list_ques_answers]
+            ground_truth["gt_parses"] = gt
+            ###############
+
+            if (
+                "gt_parses" in ground_truth
+            ):  # when multiple ground truths are available, e.g., docvqa
                 assert isinstance(ground_truth["gt_parses"], list)
                 gt_jsons = ground_truth["gt_parses"]
             else:
-                assert "gt_parse" in ground_truth and isinstance(ground_truth["gt_parse"], dict)
+                assert "gt_parse" in ground_truth and isinstance(
+                    ground_truth["gt_parse"], dict
+                )
                 gt_jsons = [ground_truth["gt_parse"]]
 
             self.gt_token_sequences.append(
@@ -79,7 +99,8 @@ class DonutDataset(Dataset):
                     task_start_token
                     + self.donut_model.json2token(
                         gt_json,
-                        update_special_tokens_for_json_key=self.split == "train",
+                        update_special_tokens_for_json_key=self.split
+                        == "train",
                         sort_json_key=self.sort_json_key,
                     )
                     + self.donut_model.decoder.tokenizer.eos_token
@@ -87,13 +108,21 @@ class DonutDataset(Dataset):
                 ]
             )
 
-        self.donut_model.decoder.add_special_tokens([self.task_start_token, self.prompt_end_token])
-        self.prompt_end_token_id = self.donut_model.decoder.tokenizer.convert_tokens_to_ids(self.prompt_end_token)
+        self.donut_model.decoder.add_special_tokens(
+            [self.task_start_token, self.prompt_end_token]
+        )
+        self.prompt_end_token_id = (
+            self.donut_model.decoder.tokenizer.convert_tokens_to_ids(
+                self.prompt_end_token
+            )
+        )
 
     def __len__(self) -> int:
         return self.dataset_length
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Load image from image_path of given dataset_path and convert into input_tensor and labels.
         Convert gt data into input_ids (tokenized string)
@@ -105,11 +134,33 @@ class DonutDataset(Dataset):
         """
         sample = self.dataset[idx]
 
-        # input_tensor
-        input_tensor = self.donut_model.encoder.prepare_input(sample["image"], random_padding=self.split == "train")
+        # # input_tensor
+        # input_tensor = self.donut_model.encoder.prepare_input(
+        #     sample["image"], random_padding=self.split == "train"
+        # )
+
+        ####### input_tensor for multipage
+        num_pages = len(sample["page_name"])
+        doc_name = sample["doc_name"]
+        page_path = sample["page_path"]
+        # C, H, W, P = 3, 2560, 1920, 5
+        C, H, W, P = 3, 1280, 960, 2  ##########
+        input_tensor = torch.zeros(size=(C, H, W, P))
+
+        for i in range(min(num_pages, 2)):
+            image_path = os.path.join(page_path, f"{doc_name}_page_{i}.png")
+            image_tensor = Image.open(image_path)
+            image_tensor = self.donut_model.encoder.prepare_input(
+                image_tensor, random_padding=self.split == "train"
+            )
+            input_tensor[:, :, :, i] = image_tensor
+
+        ###################################
 
         # input_ids
-        processed_parse = random.choice(self.gt_token_sequences[idx])  # can be more than one, e.g., DocVQA Task 1
+        processed_parse = random.choice(
+            self.gt_token_sequences[idx]
+        )  # can be more than one, e.g., DocVQA Task 1
         input_ids = self.donut_model.decoder.tokenizer(
             processed_parse,
             add_special_tokens=False,
@@ -133,6 +184,42 @@ class DonutDataset(Dataset):
                 input_ids == self.prompt_end_token_id
             ).sum()  # return prompt end index instead of target output labels
             return input_tensor, input_ids, prompt_end_index, processed_parse
+
+    def load_dataset_multipage(self, dataset_name_or_path, split):
+        json_path = os.path.join(dataset_name_or_path, split, "metadata.jsonl")
+        dataset = dict()
+
+        with open(json_path, "r") as json_file:
+            json_list = list(json_file)
+
+            for json_str in json_list:
+                data = json.loads(json_str)
+
+                page_name = data[
+                    "file_name"
+                ]  # striing with dir/page_image_name.jpg
+                page_path = os.path.join(dataset_name_or_path, split, "images")
+                doc_name = page_name.split("/", maxsplit=1)[1].rsplit(
+                    "_", maxsplit=2
+                )[0]
+                ques_ans = data["ground_truth"][
+                    "gt_parses"
+                ]  # list of dictionaries containing questiosn and answers
+
+                page_name = os.path.join(dataset_name_or_path, split, page_name)
+                if doc_name in dataset:
+                    dataset[doc_name]["page_name"].append(page_name)
+                    dataset[doc_name]["question_answer"].append(
+                        ques_ans
+                    )  # [[{}], [{}], ...] = [{}, {}, ...]
+                else:
+                    dataset[doc_name] = dict()
+                    dataset[doc_name]["doc_name"] = doc_name
+                    dataset[doc_name]["page_path"] = page_path
+                    dataset[doc_name]["page_name"] = [page_name]
+                    dataset[doc_name]["question_answer"] = [ques_ans]
+
+        return list(dataset.values())
 
 
 class JSONParseEvaluator:
@@ -165,7 +252,9 @@ class JSONParseEvaluator:
         def _flatten(value, key=""):
             if type(value) is dict:
                 for child_key, child_value in value.items():
-                    _flatten(child_value, f"{key}.{child_key}" if key else child_key)
+                    _flatten(
+                        child_value, f"{key}.{child_key}" if key else child_key
+                    )
             elif type(value) is list:
                 for value_item in value:
                     _flatten(value_item, key)
@@ -188,7 +277,9 @@ class JSONParseEvaluator:
         label1_leaf = "<leaf>" in label1
         label2_leaf = "<leaf>" in label2
         if label1_leaf == True and label2_leaf == True:
-            return edit_distance(label1.replace("<leaf>", ""), label2.replace("<leaf>", ""))
+            return edit_distance(
+                label1.replace("<leaf>", ""), label2.replace("<leaf>", "")
+            )
         elif label1_leaf == False and label2_leaf == True:
             return 1 + len(label2.replace("<leaf>", ""))
         elif label1_leaf == True and label2_leaf == False:
@@ -233,7 +324,11 @@ class JSONParseEvaluator:
                     if item:
                         new_data.append(item)
             else:
-                new_data = [str(item).strip() for item in data if type(item) in {str, int, float} and str(item).strip()]
+                new_data = [
+                    str(item).strip()
+                    for item in data
+                    if type(item) in {str, int, float} and str(item).strip()
+                ]
         else:
             new_data = [str(data).strip()]
 
@@ -245,7 +340,9 @@ class JSONParseEvaluator:
         """
         total_tp, total_fn_or_fp = 0, 0
         for pred, answer in zip(preds, answers):
-            pred, answer = self.flatten(self.normalize_dict(pred)), self.flatten(self.normalize_dict(answer))
+            pred, answer = self.flatten(
+                self.normalize_dict(pred)
+            ), self.flatten(self.normalize_dict(answer))
             for field in pred:
                 if field in answer:
                     total_tp += 1
@@ -255,7 +352,9 @@ class JSONParseEvaluator:
             total_fn_or_fp += len(answer)
         return total_tp / (total_tp + total_fn_or_fp / 2)
 
-    def construct_tree_from_dict(self, data: Union[Dict, List], node_name: str = None):
+    def construct_tree_from_dict(
+        self, data: Union[Dict, List], node_name: str = None
+    ):
         """
         Convert Dictionary into Tree
 
