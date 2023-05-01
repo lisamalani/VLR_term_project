@@ -16,6 +16,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from donut import DonutModel, JSONParseEvaluator, load_json, save_json
+from donut import DonutDataset
 
 
 def test(args):
@@ -37,14 +38,42 @@ def test(args):
     accs = []
 
     evaluator = JSONParseEvaluator()
-    dataset = load_dataset(args.dataset_name_or_path, split=args.split)
+    # dataset = load_dataset(args.dataset_name_or_path, split=args.split)
+    dataset = DonutDataset.load_dataset_multipage(
+        args.dataset_name_or_path, split=args.split
+    )
 
     for idx, sample in tqdm(enumerate(dataset), total=len(dataset)):
-        ground_truth = json.loads(sample["ground_truth"])
+        # ground_truth = json.loads(sample["ground_truth"])
+
+        ### Multipage ground truth
+        ground_truth = dict()
+        list_ques_answers = sample["question_answer"]
+        gt = []
+        [gt.extend(q_a_list) for q_a_list in list_ques_answers[:4]]
+        ground_truth["gt_parses"] = gt
+        ###############
+
+        args.task_name = "vqa"
+
+        num_pages = len(sample["page_name"])
+        doc_name = sample["doc_name"]
+        page_path = sample["page_path"]
+        # C, H, W, P = 3, 2560, 1920, 5
+        C, H, W, P = 3, 1280, 960, 4  ##########
+        input_tensor = torch.zeros(size=(1, C, H, W, P))
+
+        for i in range(min(num_pages, 4)):
+            image_path = os.path.join(page_path, f"{doc_name}_page_{i}.jpg")
+            image_tensor = Image.open(image_path)
+            image_tensor = pretrained_model.encoder.prepare_input(
+                image_tensor, random_padding=False
+            )
+            input_tensor[0, :, :, :, i] = image_tensor
 
         if "vqa" in args.task_name:
             output = pretrained_model.inference(
-                image=sample["image"],
+                image_tensors=input_tensor,
                 prompt=f"<s_{args.task_name}><s_question>{ground_truth['gt_parses'][0]['question'].lower()}</s_question><s_answer>",
             )["predictions"][0]
         else:

@@ -44,8 +44,10 @@ import os
 from tqdm import tqdm
 import shutil
 
-save_path = "term_project/CUAD_single_page_copies/vqa_dataset/"  # where dataset splits will exist
-single_image_path = "term_project/CUAD_v1_single_images/"  # where documents are split into single pages and saved as images with page_#.jpg suffix
+save_path = (
+    "CUAD_single_page_copies/vqa_dataset/"  # where dataset splits will exist
+)
+single_image_path = "CUAD_v1_single_images/"  # where documents are split into single pages and saved as images with page_#.jpg suffix
 dataset_splits = ["train", "validation", "test"]
 
 # Splits for training
@@ -54,7 +56,7 @@ for split in dataset_splits:
     os.makedirs(dir_path, exist_ok=True)
 
 # CUAD single page VQA CSV
-cuad_single_vqa_csv_path = "term_project/CUAD_single_page/cuad_vqa_with_page_numbers.csv"
+cuad_single_vqa_csv_path = "CUAD_single_page/cuad_vqa_with_page_numbers.csv"
 
 cuad_vqa = {}
 with open(cuad_single_vqa_csv_path, "r") as f:

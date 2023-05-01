@@ -490,37 +490,38 @@ class DonutModel(PreTrainedModel):
             decode_labels: (batch_size, sequence_length)
         """
 
-        # encoder_outputs = self.encoder(image_tensors)
+        if image_tensors.ndim == 5:
+            ############## Multipage
+            num_pages = image_tensors.shape[-1]
+            encoder_outputs = []
+            device = image_tensors.device
 
-        ############## Multipage
-        num_pages = image_tensors.shape[-1]
-        encoder_outputs = []
-        device = image_tensors.device
+            image_tensors = image_tensors.to("cpu")
 
-        image_tensors = image_tensors.to("cpu")
+            for i in range(num_pages):
+                single_page_tensor = image_tensors[:, :, :, :, i].to(device)
+                page_tensor = single_page_tensor.squeeze(-1)
+                encoder_output = self.encoder(page_tensor)
+                encoder_outputs.append(encoder_output.unsqueeze(-1).to("cpu"))
 
-        for i in range(num_pages):
-            single_page_tensor = image_tensors[:, :, :, :, i].to(device)
-            page_tensor = single_page_tensor.squeeze(-1)
-            encoder_output = self.encoder(page_tensor)
-            encoder_outputs.append(encoder_output.unsqueeze(-1).to("cpu"))
+            encoder_outputs = torch.cat(encoder_outputs, dim=-1).to(device)
 
-        encoder_outputs = torch.cat(encoder_outputs, dim=-1).to(device)
-
-        encoder_outputs_reshaped = encoder_outputs.transpose(1, 2)
-        B, M, N, pages = encoder_outputs_reshaped.shape
-        encoder_outputs_reshaped = encoder_outputs_reshaped.reshape(
-            B, M, N * pages
-        )
-        encoder_output_multi = self.linear_layer(
-            encoder_outputs_reshaped
-        ).transpose(1, 2)
+            encoder_outputs_reshaped = encoder_outputs.transpose(1, 2)
+            B, M, N, pages = encoder_outputs_reshaped.shape
+            encoder_outputs_reshaped = encoder_outputs_reshaped.reshape(
+                B, M, N * pages
+            )
+            encoder_outputs = self.linear_layer(
+                encoder_outputs_reshaped
+            ).transpose(1, 2)
+        else:
+            encoder_outputs = self.encoder(image_tensors)
 
         # print("encoder_outputs: ", encoder_outputs.shape)
 
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
-            encoder_hidden_states=encoder_output_multi,
+            encoder_hidden_states=encoder_outputs,
             labels=decoder_labels,
         )
         return decoder_outputs
@@ -568,30 +569,32 @@ class DonutModel(PreTrainedModel):
 
         prompt_tensors = prompt_tensors.to(self.device)
 
-        num_pages = image_tensors.shape[-1]
-        encoder_outputs = []
-        device = image_tensors.device
+        if image_tensors.ndim == 5:
+            num_pages = image_tensors.shape[-1]
+            encoder_outputs = []
+            device = image_tensors.device
 
-        image_tensors = image_tensors.to("cpu")
+            image_tensors = image_tensors.to("cpu")
 
-        for i in range(num_pages):
-            single_page_tensor = image_tensors[:, :, :, :, i].to(device)
-            page_tensor = single_page_tensor.squeeze(-1)
-            encoder_output = self.encoder(page_tensor)
-            encoder_outputs.append(encoder_output.unsqueeze(-1).to("cpu"))
+            for i in range(num_pages):
+                single_page_tensor = image_tensors[:, :, :, :, i].to(device)
+                page_tensor = single_page_tensor.squeeze(-1)
+                encoder_output = self.encoder(page_tensor)
+                encoder_outputs.append(encoder_output.unsqueeze(-1).to("cpu"))
 
-        encoder_outputs = torch.cat(encoder_outputs, dim=-1).to(device)
+            encoder_outputs = torch.cat(encoder_outputs, dim=-1).to(device)
 
-        encoder_outputs_reshaped = encoder_outputs.transpose(1, 2)
-        B, M, N, pages = encoder_outputs_reshaped.shape
-        encoder_outputs_reshaped = encoder_outputs_reshaped.reshape(
-            B, M, N * pages
-        )
-        last_hidden_state = self.linear_layer(
-            encoder_outputs_reshaped
-        ).transpose(1, 2)
+            encoder_outputs_reshaped = encoder_outputs.transpose(1, 2)
+            B, M, N, pages = encoder_outputs_reshaped.shape
+            encoder_outputs_reshaped = encoder_outputs_reshaped.reshape(
+                B, M, N * pages
+            )
+            last_hidden_state = self.linear_layer(
+                encoder_outputs_reshaped
+            ).transpose(1, 2)
+        else:
+            last_hidden_state = self.encoder(image_tensors)
 
-        # last_hidden_state = self.encoder(image_tensors)
         if self.device.type != "cuda":
             last_hidden_state = last_hidden_state.to(torch.float32)
 

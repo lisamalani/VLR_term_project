@@ -41,6 +41,9 @@ class DonutDataset(Dataset):
         task_start_token: the special token to be fed to the decoder to conduct the target task
     """
 
+    num_pages = 4
+    single_image = True
+
     def __init__(
         self,
         dataset_name_or_path: str,
@@ -53,7 +56,6 @@ class DonutDataset(Dataset):
         sort_json_key: bool = True,
     ):
         super().__init__()
-        self.num_pages = 4
 
         self.donut_model = donut_model
         self.max_length = max_length
@@ -64,28 +66,36 @@ class DonutDataset(Dataset):
             prompt_end_token if prompt_end_token else task_start_token
         )
         self.sort_json_key = sort_json_key
+        self.dataset_name_or_path = dataset_name_or_path
 
         print(dataset_name_or_path, self.split)
-        # self.dataset = load_dataset(dataset_name_or_path, split=self.split)
-        self.dataset = self.load_dataset_multipage(
-            dataset_name_or_path, split=self.split
-        )
+        if self.single_image:
+            self.dataset = load_dataset(
+                dataset_name_or_path,
+                split=self.split,
+            )
+        else:
+            self.dataset = self.load_dataset_multipage(
+                dataset_name_or_path, split=self.split
+            )
         self.dataset_length = len(self.dataset)
 
         self.gt_token_sequences = []
         for sample in self.dataset:
-            # ground_truth = sample["ground_truth"]
+            if self.single_image:
+                ground_truth = sample["ground_truth"]
 
-            ### Multipage ground truth
-            ground_truth = dict()
-            list_ques_answers = sample["question_answer"]
-            gt = []
-            [
-                gt.extend(q_a_list)
-                for q_a_list in list_ques_answers[: self.num_pages]
-            ]
-            ground_truth["gt_parses"] = gt
-            ###############
+            else:
+                ### Multipage ground truth
+                ground_truth = dict()
+                list_ques_answers = sample["question_answer"]
+                gt = []
+                [
+                    gt.extend(q_a_list)
+                    for q_a_list in list_ques_answers[: self.num_pages]
+                ]
+                ground_truth["gt_parses"] = gt
+                ###############
 
             if (
                 "gt_parses" in ground_truth
@@ -138,28 +148,37 @@ class DonutDataset(Dataset):
         """
         sample = self.dataset[idx]
 
-        # # input_tensor
-        # input_tensor = self.donut_model.encoder.prepare_input(
-        #     sample["image"], random_padding=self.split == "train"
-        # )
-
-        ####### input_tensor for multipage
-        num_pages = len(sample["page_name"])
-        doc_name = sample["doc_name"]
-        page_path = sample["page_path"]
-        # C, H, W, P = 3, 2560, 1920, 5
-        C, H, W, P = 3, 1280, 960, self.num_pages  ##########
-        input_tensor = torch.zeros(size=(C, H, W, P))
-
-        for i in range(min(num_pages, self.num_pages)):
-            image_path = os.path.join(page_path, f"{doc_name}_page_{i}.png")
-            image_tensor = Image.open(image_path)
-            image_tensor = self.donut_model.encoder.prepare_input(
-                image_tensor, random_padding=self.split == "train"
+        if self.single_image:
+            # input_tensor
+            if "image" not in sample:
+                sample["image"] = Image.open(
+                    os.path.join(
+                        self.dataset_name_or_path,
+                        self.split,
+                        sample["file_name"],
+                    )
+                )
+            input_tensor = self.donut_model.encoder.prepare_input(
+                sample["image"], random_padding=self.split == "train"
             )
-            input_tensor[:, :, :, i] = image_tensor
+        else:
+            ####### input_tensor for multipage
+            num_pages = len(sample["page_name"])
+            doc_name = sample["doc_name"]
+            page_path = sample["page_path"]
+            # C, H, W, P = 3, 2560, 1920, 5
+            C, H, W, P = 3, 1280, 960, self.num_pages  ##########
+            input_tensor = torch.zeros(size=(C, H, W, P))
 
-        ###################################
+            for i in range(min(num_pages, self.num_pages)):
+                image_path = os.path.join(page_path, f"{doc_name}_page_{i}.png")
+                image_tensor = Image.open(image_path)
+                image_tensor = self.donut_model.encoder.prepare_input(
+                    image_tensor, random_padding=self.split == "train"
+                )
+                input_tensor[:, :, :, i] = image_tensor
+
+            ###################################
 
         # input_ids
         try:
@@ -193,7 +212,8 @@ class DonutDataset(Dataset):
             ).sum()  # return prompt end index instead of target output labels
             return input_tensor, input_ids, prompt_end_index, processed_parse
 
-    def load_dataset_multipage(self, dataset_name_or_path, split):
+    @classmethod
+    def load_dataset_multipage(cls, dataset_name_or_path, split):
         json_path = os.path.join(dataset_name_or_path, split, "metadata.jsonl")
         dataset = dict()
 
@@ -233,7 +253,7 @@ class DonutDataset(Dataset):
             qa = []
             [
                 qa.extend(q_a_list)
-                for q_a_list in question_answers[: self.num_pages]
+                for q_a_list in question_answers[: cls.num_pages]
             ]
             if len(qa) == 0:
                 empty_docs.append(doc)
