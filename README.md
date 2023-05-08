@@ -8,13 +8,12 @@ Robin Bhoo, Mansi Gandhi, Monalisa Malani, Chirag Mehta
 
 </div>
 
-## Introduction
+## Abstract
+Our project attempts to address the challenge of understanding long legal documents by implementing an OCR-free, multi-page document recognition model. We use a pre-trained Donut encoder and decoder, which are Transformer-based architectures, and train a meta-encoder that captures the encoder embedding of multiple pages and merges them into one. The computational limitations only allowed us to explore up to 4 pages with degraded resolution. In addition, our workaround for the computational limits inhibited the use of the pre-trained weights for the Donut backbone. However, our work shows the possibility of reasoning across multi-page documents.
+
+Our model, a variation of the Donut model, is an OCR-free method used to perform document understanding on multi-page documents with sparse information. We have performed training and testing using the CUAD dataset. See our report submission for more details about our project and the results.
 
 The following repository contains the code for the model we used to perform document understanding for long legal documents.
-
-Our model is a variation of the Donut model, which is an OCR-free method used to perform document understanding on single-page documents with sparse information. We have performed training and testing using the CUAD dataset.
-
-See our report submission for more details about our project and the results.
 
 ## Software installation
 
