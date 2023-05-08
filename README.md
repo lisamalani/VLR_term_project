@@ -4,7 +4,8 @@
 
 Robin Bhoo, Mansi Gandhi, Monalisa Malani, Chirag Mehta
 
-16-824: Visual Learning and Recognition Term Project - Spring 2023
+16-824: Visual Learning and Recognition Term Project
+<br> Spring 2023
 
 </div>
 
